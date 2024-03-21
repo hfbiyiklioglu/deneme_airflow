@@ -1,0 +1,116 @@
+version: '3.9'
+services:
+  redis:
+    image: redis:latest
+
+  postgres:
+    image: postgres:14
+    environment:
+        - POSTGRES_USER=airflow
+        - POSTGRES_PASSWORD=airflow
+        - POSTGRES_DB=airflow
+        - POSTGRES_PORT=5432
+    ports:
+      - "5432:5432"
+
+  webserver:
+    image: apache/airflow:2.8.1-python3.8
+    restart: always
+    depends_on:
+        - postgres
+    environment:
+        - AIRFLOW__CORE__LOAD_EXAMPLES=False
+        - AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS=False
+        - AIRFLOW__CORE__FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+        - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+        - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+        - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+        - AIRFLOW__CELERY__BROKER_URL=redis://redis:6379/1
+        - AIRFLOW__WEBSERVER__SECRET_KEY=Ud+K7/gXg+IWP5F9HjsqXw==
+        - LOAD_EX=n
+
+    volumes:
+      - ./airflow_files/dags/airflow_dags:/opt/airflow/dags
+      - ./airflow_files/logs:/opt/airflow/logs
+      - ./airflow_files/plugins:/opt/airflow/plugins
+      - ./airflow_files/dags/scripts:/opt/airflow/scripts
+      - ./airflow_files/dags/queries:/opt/airflow/queries
+      - ./airflow_files/dags/db_manager:/opt/airflow/db_manager
+      - ./airflow_files/dags/controllers:/opt/airflow/controllers
+      - ./data:/opt/airflow/data
+      - ./entrypoint.sh:/usr/bin/entrypoint.sh
+
+    ports:
+        - "8080:8080"
+
+    entrypoint: /usr/bin/entrypoint.sh
+    healthcheck:
+        test: ["CMD-SHELL", "[ -f /opt/airflow/airflow-webserver.pid ]"]
+        interval: 10s
+        timeout: 20s
+        retries: 3
+
+  flower:
+    image: apache/airflow:2.8.1-python3.8
+    restart: always
+    depends_on:
+        - redis
+        - webserver
+    environment:
+        - AIRFLOW__CORE__LOAD_EXAMPLES=False
+        - AIRFLOW__CORE__FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+        - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+        - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+        - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+        - AIRFLOW__CELERY__BROKER_URL=redis://redis:6379/1
+        - AIRFLOW__WEBSERVER__SECRET_KEY=Ud+K7/gXg+IWP5F9HjsqXw==
+        - LOAD_EX=n
+    ports:
+        - "5555:5555"
+    command: celery flower
+
+  scheduler:
+    image: apache/airflow:2.8.1-python3.8
+    restart: always
+    depends_on:
+        - webserver
+    volumes:
+        - ./data:/opt/airflow/data
+        - ./airflow_files/dags/airflow_dags:/opt/airflow/dags
+        - ./airflow_files/logs:/opt/airflow/logs
+        - ./airflow_files/plugins:/opt/airflow/plugins
+        - ./airflow_files/dags/scripts:/opt/airflow/scripts
+        - ./airflow_files/dags/queries:/opt/airflow/queries
+        - ./airflow_files/dags/db_manager:/opt/airflow/db_manager
+        - ./airflow_files/dags/controllers:/opt/airflow/controllers
+    environment:
+        - AIRFLOW__CORE__LOAD_EXAMPLES=False
+        - AIRFLOW__CORE__FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+        - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+        - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+        - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+        - AIRFLOW__CELERY__BROKER_URL=redis://redis:6379/1
+        - AIRFLOW__WEBSERVER__SECRET_KEY=Ud+K7/gXg+IWP5F9HjsqXw==
+        - LOAD_EX=n
+    command: scheduler
+
+  worker:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    restart: always
+    depends_on:
+        - scheduler
+    volumes:
+        - ./airflow_files/dags/airflow_dags:/opt/airflow/dags
+        - ./data:/opt/airflow/data
+
+    environment:
+        - AIRFLOW__CORE__FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+        - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+        - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+        - AIRFLOW__CELERY__RESULT_BACKEND=db+postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+        - AIRFLOW__CELERY__BROKER_URL=redis://redis:6379/1
+        - AIRFLOW__WEBSERVER__SECRET_KEY=Ud+K7/gXg+IWP5F9HjsqXw==
+        - LOAD_EX=n
+    command: celery worker
